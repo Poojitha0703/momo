@@ -1,77 +1,182 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dumbbell, Gift, X, Check } from 'lucide-react';
-
-const INITIAL_PASSES = [
-  { id: '1', title: '🎫 Skip One Fight Pass', desc: 'Lite teesko bro', redeemed: false },
-  { id: '2', title: '🎫 Gym Ego Protection Pass', desc: 'Can be used when Pooja tries to correct workout form😎', redeemed: false },
-  { id: '3', title: '🎫 Midnight Food Demand Pass', desc: 'Edhina tinalanipistundhi - Maggi/ egg fried rice/ 4 am biryani', redeemed: false },
-  { id: '4', title: '🎫 Silent Treatment Breaker Pass', desc: 'Inka chaaaaaalu inka chaaalu', redeemed: false },
-  { id: '5', title: '🎫 I’m Mad But Come Here Pass', desc: 'Nenu aliganu bunga moothi pettukunna', redeemed: false }
-];
-
-// Other constants discarded to show only Gymson & Marriage Survival Kit
+import { Dumbbell, Gift, ListTodo, BookOpen, Flame, Award } from 'lucide-react';
+import { doc, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from '../firebase';
+import { seedDatabase } from '../utils/firebaseSeed';
+import '../index.css';
 
 export default function Home() {
   const navigate = useNavigate();
-  const [activeSheet, setActiveSheet] = useState(null);
 
-  // Load/save passes state in localStorage
-  const [passes, setPasses] = useState(() => {
-    const saved = localStorage.getItem('momo_passes_v3');
-    return saved ? JSON.parse(saved) : INITIAL_PASSES;
-  });
+  // Load metrics from Firestore
+  const [tasks, setTasks] = useState([]);
+  const [passes, setPasses] = useState([]);
+  const [stats, setStats] = useState({ xp: 0, level: 1, streak: 0, lastActiveDate: '', seeded: false });
+  const [seedingText, setSeedingText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  // Get today's date formatted as YYYY-MM-DD
+  const getTodayDateString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
 
   useEffect(() => {
-    localStorage.setItem('momo_passes_v3', JSON.stringify(passes));
-  }, [passes]);
+    const runSeedCheck = async () => {
+      try {
+        await seedDatabase((text) => setSeedingText(text));
+        setSeedingText('');
+      } catch (e) {
+        console.error("Error seeding database on load:", e);
+        setSeedingText(`Error seeding database: ${e.message}`);
+        setLoading(false);
+      }
+    };
+    runSeedCheck();
 
-  const [successRedeemedId, setSuccessRedeemedId] = useState(null);
+    // 1. Subscribe to gamification stats
+    const statsRef = doc(db, 'gamification', 'stats');
+    const unsubStats = onSnapshot(statsRef, 
+      (snap) => {
+        if (snap.exists()) {
+          setStats(snap.data());
+          setLoading(false);
+        }
+      },
+      (error) => {
+        console.error("Firestore stats error:", error);
+        setSeedingText(`Firebase connection error: "${error.message}". Please make sure Firestore is enabled in your console and the Security Rules allow reads and writes.`);
+        setLoading(false);
+      }
+    );
+
+    // 2. Subscribe to passes (unlocked & unredeemed)
+    const unsubPasses = onSnapshot(
+      collection(db, 'passes'), 
+      (snap) => {
+        const loadedPasses = [];
+        snap.forEach((doc) => {
+          loadedPasses.push(doc.data());
+        });
+        setPasses(loadedPasses);
+      },
+      (error) => {
+        console.error("Firestore passes error:", error);
+      }
+    );
+
+    // 3. Subscribe to today's tasks
+    const todayStr = getTodayDateString();
+    const tasksQuery = query(collection(db, 'tasks'), where('date', '==', todayStr));
+    const unsubTasks = onSnapshot(
+      tasksQuery, 
+      (snap) => {
+        const loadedTasks = [];
+        snap.forEach((doc) => {
+          loadedTasks.push(doc.data());
+        });
+        setTasks(loadedTasks);
+      },
+      (error) => {
+        console.error("Firestore tasks error:", error);
+      }
+    );
+
+
+
+    return () => {
+      unsubStats();
+      unsubPasses();
+      unsubTasks();
+    };
+  }, []);
+
   const [isGymsonTouched, setIsGymsonTouched] = useState(false);
   const [isSurvivalTouched, setIsSurvivalTouched] = useState(false);
-  const [openPassIds, setOpenPassIds] = useState(new Set());
+  const [isPlannerTouched, setIsPlannerTouched] = useState(false);
+  const [isJournalTouched, setIsJournalTouched] = useState(false);
 
-  const togglePass = (id) => {
-    setOpenPassIds(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+  const getGreeting = () => {
+    const hrs = new Date().getHours();
+    if (hrs < 12) return 'Good Morning 🌅';
+    if (hrs < 17) return 'Good Afternoon ☀️';
+    if (hrs < 21) return 'Good Evening 🌆';
+    return 'Good Night 🌙';
   };
 
-  const handleRedeemPass = (id, e) => {
-    e.stopPropagation(); // prevent toggling fold on button click
-    setPasses(prev => prev.map(p => p.id === id ? { ...p, redeemed: true } : p));
-    setSuccessRedeemedId(id);
-    setTimeout(() => {
-      setSuccessRedeemedId(null);
-    }, 2000);
-  };
+  // Helper counts
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(t => t.completed).length;
+  const remainingPasses = passes.filter(p => p.unlocked && !p.redeemed).length;
+
+  if (loading || seedingText) {
+    return (
+      <main className="container main-content-wrapper">
+        <div className="card page-card" style={{ textAlign: 'center', padding: '60px 40px' }}>
+          <div className="spinner-loading"></div>
+          <p style={{ marginTop: '20px', fontSize: '1.1rem', color: 'var(--text-main)' }}>
+            {seedingText || 'Loading MoMo\'s Hub...'}
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  // XP percentage helper
+  const xpPercent = Math.min(Math.max(stats.xp % 100, 0), 100);
 
   return (
-    <div className="container" style={{ paddingTop: '10px' }}>
-
+    <main className="container main-content-wrapper">
+      
       {/* Personalized Welcome Header */}
-      <div className="dashboard-header">
-        <h2>Happy Birthday</h2>
-        <h1>MoMo <span className="brand-emoji">🤬</span></h1>
+      <div className="dashboard-header" style={{ marginBottom: '16px' }}>
+        <h2>{getGreeting()}</h2>
+        <h1>MoMo's Hub <span className="brand-emoji">🤬</span></h1>
       </div>
 
-      {/* Intro message */}
-      <div className="card" style={{ textAlign: 'center', padding: '24px 16px' }}>
-        <p style={{ fontSize: '1.05rem', color: 'var(--text-main)', lineHeight: '1.5' }}>
-          Welcome to your personal space. Pick a card below to explore your birthday features!
+      {/* Gamification Status Bar */}
+      <div className="gamification-status-bar-card card" style={{ padding: '16px', borderRadius: '14px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Award className="text-primary" size={20} />
+            <span style={{ fontWeight: 'bold', fontSize: '1rem', color: '#fff' }}>
+              Level {stats.level}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Flame className="text-danger" size={18} style={{ fill: 'var(--danger)' }} />
+            <span style={{ fontWeight: '700', fontSize: '0.95rem' }}>
+              {stats.streak} Day Streak
+            </span>
+          </div>
+        </div>
+        
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            <span>XP: {stats.xp % 100} / 100</span>
+            <span>Total XP: {stats.xp}</span>
+          </div>
+          <div className="progress-bar-bg" style={{ height: '6px' }}>
+            <div className="progress-bar-fill" style={{ width: `${xpPercent}%`, background: 'linear-gradient(90deg, #FFD700, #FFA500)' }}></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Welcome Intro Summary */}
+      <div className="card" style={{ padding: '24px 20px', borderRadius: '16px', textAlign: 'center', marginBottom: '24px' }}>
+        <p style={{ fontSize: '1.02rem', color: 'var(--text-main)', lineHeight: '1.5', margin: 0 }}>
+          Welcome back, MoMo. Your daily metrics are looking good. Select any card below to track your workouts, manage checklist tasks, or activate passes.
         </p>
       </div>
 
       {/* 2x2 Features Grid */}
       <div className="features-grid">
 
-        {/* Card 1: Gym Tracker (Routes to existing gym check page) */}
+        {/* Card 1: Gymson */}
         <div
           className={`feature-card gymson-card ${isGymsonTouched ? 'touched' : ''}`}
           onClick={() => navigate('/gym')}
@@ -91,7 +196,7 @@ export default function Home() {
         {/* Card 2: Marriage Survival Kit */}
         <div
           className={`feature-card survival-card ${isSurvivalTouched ? 'touched' : ''}`}
-          onClick={() => setActiveSheet('coupons')}
+          onClick={() => navigate('/passes')}
           onTouchStart={() => setIsSurvivalTouched(true)}
           onTouchEnd={() => setIsSurvivalTouched(false)}
           onMouseEnter={() => setIsSurvivalTouched(true)}
@@ -101,90 +206,50 @@ export default function Home() {
           <div className="feature-icon-wrapper">
             <Gift size={24} />
           </div>
-          <h3>Marriage Survival Kit</h3>
-          <p>Annoy each other forever</p>
+          <h3>Survival Kit</h3>
+          <p>{remainingPasses} unlocked passes ready</p>
+        </div>
+
+        {/* Card 3: Daily Planner */}
+        <div
+          className={`feature-card planner-card ${isPlannerTouched ? 'touched' : ''}`}
+          onClick={() => navigate('/planner')}
+          onTouchStart={() => setIsPlannerTouched(true)}
+          onTouchEnd={() => setIsPlannerTouched(false)}
+          onMouseEnter={() => setIsPlannerTouched(true)}
+          onMouseLeave={() => setIsPlannerTouched(false)}
+        >
+          <div className="card-bg-image" style={{ backgroundImage: 'url(/cozy_walk.png)' }} />
+          <div className="feature-icon-wrapper">
+            <ListTodo size={24} />
+          </div>
+          <h3>Daily Planner</h3>
+          <p>{completedTasks}/{totalTasks} tasks completed today</p>
+        </div>
+
+        {/* Card 4: Personal Journal */}
+        <div
+          className={`feature-card journal-card ${isJournalTouched ? 'touched' : ''}`}
+          onClick={() => navigate('/journal')}
+          onTouchStart={() => setIsJournalTouched(true)}
+          onTouchEnd={() => setIsJournalTouched(false)}
+          onMouseEnter={() => setIsJournalTouched(true)}
+          onMouseLeave={() => setIsJournalTouched(false)}
+        >
+          <div className="card-bg-image" style={{ backgroundImage: 'url(/journal_hover.jpg)' }} />
+          <div className="feature-icon-wrapper">
+            <BookOpen size={24} />
+          </div>
+          <h3>Personal Journal</h3>
+          <p>Document thoughts, logs, and private diary entries</p>
         </div>
 
       </div>
 
       <div style={{ textAlign: 'center', marginTop: '20px', fontSize: '2rem' }}>
-        🎂✨🎉
+        ⚡️✨💪
       </div>
 
-      {/* --- FEATURE SLIDING SHEETS --- */}
-
-      {/* 1. Marriage Survival Kit Sheet */}
-      {activeSheet === 'coupons' && (
-        <div className="feature-sheet">
-          <div className="sheet-container">
-            <div className="sheet-header">
-              <h2 style={{ color: 'var(--primary)' }}>
-                <Gift size={24} /> Marriage Survival Kit
-              </h2>
-              <button className="btn-close" onClick={() => setActiveSheet(null)}>
-                <X size={20} />
-              </button>
-            </div>
-
-            {/* Animated Text Quote */}
-            <div className="survival-quote-text">
-              Mood swings & Fights are temporary, but annoying each other is permanent.
-            </div>
-
-            <div className="passes-list">
-              {passes.map(pass => {
-                const isOpen = openPassIds.has(pass.id);
-                return (
-                  <div
-                    key={pass.id}
-                    className={`folded-pass ${isOpen ? 'open' : ''} ${pass.redeemed ? 'redeemed' : ''}`}
-                    onClick={() => togglePass(pass.id)}
-                  >
-
-                    {/* Pass Redemption Success Animation Overlay */}
-                    {successRedeemedId === pass.id && (
-                      <div className="redeem-success-overlay">
-                        <div className="success-ribbon">PASS ACTIVATED</div>
-                        <div className="success-title">Redeemed 🎫</div>
-                        <div className="success-sub">Show this screen to redeem your favor!</div>
-                      </div>
-                    )}
-
-                    <div className="folded-pass-header">
-                      <div className="folded-pass-title-wrapper">
-                        <h3>{pass.title}</h3>
-                        {pass.redeemed && <span className="redeemed-badge-small">Claimed</span>}
-                      </div>
-                      <div className="folded-pass-indicator">
-                        {isOpen ? 'Fold 🔼' : 'Unfold 🔽'}
-                      </div>
-                    </div>
-
-                    <div className="folded-pass-body-container">
-                      <div className="folded-pass-body">
-                        <p className="pass-description">"{pass.desc}"</p>
-                        <div className="pass-actions">
-                          {pass.redeemed ? (
-                            <span className="pass-claimed-badge">
-                              <Check size={14} /> Claimed
-                            </span>
-                          ) : (
-                            <button className="btn-redeem-pass" onClick={(e) => handleRedeemPass(pass.id, e)}>
-                              Activate Pass
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
+    </main>
   );
 }

@@ -119,7 +119,7 @@ function GymTracker() {
 
   return (
     <>
-      <main className="container" style={{gap: '10px', paddingTop: '10px'}}>
+      <main className="container main-content-wrapper" style={{gap: '10px', paddingTop: '10px'}}>
         
         {/* ONE PAGE LAYOUT */}
         <div className="card" style={{padding: '16px', position: 'relative', overflow: 'hidden'}}>
