@@ -260,10 +260,21 @@ export default function Planner() {
     const milestoneRef = doc(db, 'epic_milestones', m.id);
 
     try {
-      await updateDoc(milestoneRef, {
+      const defaultStart = isWeightType ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0;
+      const currentStart = m.start !== undefined ? m.start : defaultStart;
+      
+      const updateData = {
         current: newCurrent,
         completed: isCompleted
-      });
+      };
+      
+      if (isWeightType && newCurrent > currentStart) {
+        updateData.start = newCurrent;
+      } else if (!isWeightType && newCurrent < currentStart) {
+        updateData.start = newCurrent;
+      }
+
+      await updateDoc(milestoneRef, updateData);
 
       if (stateChanged) {
         const xpChange = m.xpReward || 150;
@@ -304,10 +315,21 @@ export default function Planner() {
     const milestoneRef = doc(db, 'epic_milestones', m.id);
 
     try {
-      await updateDoc(milestoneRef, {
+      const defaultStart = isWeightType ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0;
+      const currentStart = m.start !== undefined ? m.start : defaultStart;
+      
+      const updateData = {
         current: newCurrent,
         completed: isCompleted
-      });
+      };
+      
+      if (isWeightType && newCurrent > currentStart) {
+        updateData.start = newCurrent;
+      } else if (!isWeightType && newCurrent < currentStart) {
+        updateData.start = newCurrent;
+      }
+
+      await updateDoc(milestoneRef, updateData);
 
       if (stateChanged) {
         const xpChange = m.xpReward || 150;
@@ -732,16 +754,17 @@ export default function Planner() {
             
             <div className="milestones-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {milestones.map(m => {
-                const percent = Math.min(Math.round((m.current / m.target) * 100), 100);
                 const isWeight = m.id.startsWith('weight') || m.id.startsWith('bodyfat');
+                const startVal = m.start !== undefined ? m.start : (isWeight ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0);
                 
-                // Weight calculation percent logic is inverse
-                let dispPercent = percent;
+                let dispPercent = 0;
                 if (isWeight) {
-                  // E.g. starting weight 78, target 72, current 78 -> 0%. current 75 -> 50%. current 72 -> 100%
-                  const startWeight = m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58;
-                  const totalDiff = startWeight - m.target;
-                  const currentDiff = startWeight - m.current;
+                  const totalDiff = startVal - m.target;
+                  const currentDiff = startVal - m.current;
+                  dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
+                } else {
+                  const totalDiff = m.target - startVal;
+                  const currentDiff = m.current - startVal;
                   dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
                 }
 

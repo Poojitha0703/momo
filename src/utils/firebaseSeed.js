@@ -17,14 +17,14 @@ const INITIAL_PASSES = [
 ];
 
 const INITIAL_MILESTONES = [
-  { id: 'read_books', title: '📖 Read 10 books', category: 'lifestyle', target: 10, current: 0, xpReward: 150, completed: false },
-  { id: 'limit_insta', title: '📱 Limit Instagram (90 Days)', category: 'lifestyle', target: 90, current: 0, xpReward: 150, completed: false },
-  { id: 'watch_movies', title: '🎬 Watch 30 movies intentionally', category: 'lifestyle', target: 30, current: 0, xpReward: 150, completed: false },
-  { id: 'watch_series', title: '📺 Watch 5 series (max 2 seasons)', category: 'lifestyle', target: 5, current: 0, xpReward: 150, completed: false },
-  { id: 'meet_parents', title: '🏡 Meet parents once a week (13 weeks)', category: 'lifestyle', target: 13, current: 0, xpReward: 150, completed: false },
-  { id: 'weight_praneeth', title: '⚖️ Praneeth Weight: 72kg', category: 'workout', target: 72, current: 78, xpReward: 200, completed: false },
-  { id: 'weight_poojitha', title: '⚖️ Poojitha Weight: 55kg', category: 'workout', target: 55, current: 58, xpReward: 200, completed: false },
-  { id: 'bodyfat_praneeth', title: '💪 Praneeth Body Fat: 16%', category: 'workout', target: 16, current: 20, xpReward: 200, completed: false }
+  { id: 'read_books', title: '📖 Read 10 books', category: 'lifestyle', target: 10, current: 0, start: 0, xpReward: 150, completed: false },
+  { id: 'limit_insta', title: '📱 Limit Instagram (90 Days)', category: 'lifestyle', target: 90, current: 0, start: 0, xpReward: 150, completed: false },
+  { id: 'watch_movies', title: '🎬 Watch 30 movies intentionally', category: 'lifestyle', target: 30, current: 0, start: 0, xpReward: 150, completed: false },
+  { id: 'watch_series', title: '📺 Watch 5 series (max 2 seasons)', category: 'lifestyle', target: 5, current: 0, start: 0, xpReward: 150, completed: false },
+  { id: 'meet_parents', title: '🏡 Meet parents once a week (13 weeks)', category: 'lifestyle', target: 13, current: 0, start: 0, xpReward: 150, completed: false },
+  { id: 'weight_praneeth', title: '⚖️ Praneeth Weight: 72kg', category: 'workout', target: 72, current: 78, start: 78, xpReward: 200, completed: false },
+  { id: 'weight_poojitha', title: '⚖️ Poojitha Weight: 55kg', category: 'workout', target: 55, current: 58, start: 58, xpReward: 200, completed: false },
+  { id: 'bodyfat_praneeth', title: '💪 Praneeth Body Fat: 16%', category: 'workout', target: 16, current: 20, start: 20, xpReward: 200, completed: false }
 ];
 
 const INITIAL_JOURNAL = [
@@ -58,7 +58,7 @@ export async function seedDatabase(onProgress = () => {}) {
   const statsRef = doc(db, "gamification", "stats");
   const statsSnap = await getDoc(statsRef);
   
-  const SEED_VERSION = 5;
+  const SEED_VERSION = 6;
   const currentVersion = statsSnap.exists() ? (statsSnap.data().seededVersion || 1) : 0;
   
   if (statsSnap.exists() && statsSnap.data().seeded && currentVersion === SEED_VERSION) {
