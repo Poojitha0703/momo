@@ -1755,6 +1755,29 @@ input.form-input:focus {
   color: #fff;
 }
 
+.calendar-day-cell.status-complete {
+  background: #4cd964 !important;
+  color: #000 !important;
+  font-weight: 700;
+  border-color: #4cd964 !important;
+  box-shadow: 0 0 10px rgba(76, 217, 100, 0.3);
+}
+
+.calendar-day-cell.status-complete:hover {
+  background: #3cb853 !important;
+  box-shadow: 0 0 14px rgba(76, 217, 100, 0.5);
+}
+
+.calendar-day-cell.status-complete.selected {
+  background: #4cd964 !important;
+  border: 2px solid var(--primary) !important;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+}
+
+.calendar-day-cell.status-complete.today {
+  border: 2px solid #fff !important;
+}
+
 .calendar-status-dot {
   position: absolute;
   bottom: 4px;
@@ -2032,4 +2055,28 @@ input[type="time"].form-input {
   border: 1px solid rgba(255, 165, 0, 0.2);
   text-transform: uppercase;
 }
+
+/* Auth Login Screen Styles */
+.login-screen-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #090909;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.login-btn-shine:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(255, 215, 0, 0.35) !important;
+}
+
+.login-btn-shine:active {
+  transform: translateY(0);
+}
+
 

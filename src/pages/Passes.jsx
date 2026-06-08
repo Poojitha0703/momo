@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Gift, Check, Lock } from 'lucide-react';
-import { collection, doc, onSnapshot, updateDoc, query, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { onSnapshot, updateDoc, query, orderBy, doc } from 'firebase/firestore';
+import { auth, getUserStatsRef, getUserPassesCol, getUserType } from '../firebase';
 import '../index.css';
 
 export default function Passes() {
+  const user = auth.currentUser;
+  const uid = user ? user.uid : null;
+
   const [passes, setPasses] = useState([]);
   const [userLevel, setUserLevel] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -12,8 +15,10 @@ export default function Passes() {
   const [openPassIds, setOpenPassIds] = useState(new Set());
 
   useEffect(() => {
+    if (!uid) return;
+
     // 1. Subscribe to gamification stats to get user level
-    const statsRef = doc(db, 'gamification', 'stats');
+    const statsRef = getUserStatsRef(uid);
     const unsubStats = onSnapshot(statsRef, (snap) => {
       if (snap.exists()) {
         setUserLevel(snap.data().level || 1);
@@ -21,7 +26,7 @@ export default function Passes() {
     });
 
     // 2. Subscribe to passes collection
-    const passesQuery = query(collection(db, 'passes'), orderBy('id'));
+    const passesQuery = query(getUserPassesCol(uid), orderBy('id'));
     const unsubPasses = onSnapshot(passesQuery, (snap) => {
       const loadedPasses = [];
       snap.forEach((doc) => {
@@ -37,21 +42,22 @@ export default function Passes() {
       unsubStats();
       unsubPasses();
     };
-  }, []);
+  }, [uid]);
 
   // Check if any passes need to be updated to unlocked: true in Firestore
   useEffect(() => {
+    if (!uid) return;
     passes.forEach(async (pass) => {
       if (userLevel >= pass.unlockLevel && !pass.unlocked) {
         try {
-          const passRef = doc(db, 'passes', pass.id);
+          const passRef = doc(getUserPassesCol(uid), pass.id);
           await updateDoc(passRef, { unlocked: true });
         } catch (err) {
           console.error("Error unlocking pass:", err);
         }
       }
     });
-  }, [passes, userLevel]);
+  }, [passes, userLevel, uid]);
 
   const togglePass = (id, isLocked) => {
     if (isLocked) return; // Can't toggle locked passes
@@ -68,8 +74,9 @@ export default function Passes() {
 
   const handleRedeemPass = async (id, e) => {
     e.stopPropagation(); // prevent toggling fold on header click
+    if (!uid) return;
     try {
-      const passRef = doc(db, 'passes', id);
+      const passRef = doc(getUserPassesCol(uid), id);
       await updateDoc(passRef, { redeemed: true });
       setSuccessRedeemedId(id);
       setTimeout(() => {
@@ -151,7 +158,11 @@ export default function Passes() {
 
                 <div className="folded-pass-body-container">
                   <div className="folded-pass-body">
-                    <p className="pass-description">"{pass.desc}"</p>
+                    <p className="pass-description">
+                      "{getUserType(user) === 'poojitha' 
+                        ? pass.desc.replace(/\bPooja\b/g, 'Praneeth').replace(/\bpooja\b/g, 'praneeth') 
+                        : pass.desc}"
+                    </p>
                     <div className="pass-actions">
                       {pass.redeemed ? (
                         <span className="pass-claimed-badge">

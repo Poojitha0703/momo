@@ -4,14 +4,17 @@ import {
   Award, Flame, Calendar, Target, Minus, X 
 } from 'lucide-react';
 import { 
-  collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc, 
-  query, where, getDocs 
+  onSnapshot, setDoc, updateDoc, deleteDoc, 
+  query, where, getDocs, doc 
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { auth, getUserStatsRef, getUserTasksCol, getUserMilestonesCol, getUserType } from '../firebase';
 import { seedDatabase } from '../utils/firebaseSeed';
 import '../index.css';
 
 export default function Planner() {
+  const user = auth.currentUser;
+  const uid = user ? user.uid : null;
+
   const [activeTab, setActiveTab] = useState('daily'); // 'daily' | 'epic'
   
   // Date State
@@ -59,9 +62,11 @@ export default function Planner() {
 
   // --- Real-time Listeners ---
   useEffect(() => {
+    if (!uid) return;
+
     const runSeedCheck = async () => {
       try {
-        await seedDatabase((text) => setSeedingText(text));
+        await seedDatabase(uid, (text) => setSeedingText(text));
         setSeedingText('');
       } catch (e) {
         console.error("Error seeding:", e);
@@ -70,7 +75,7 @@ export default function Planner() {
     runSeedCheck();
 
     // 1. Stats Subscription
-    const statsRef = doc(db, 'gamification', 'stats');
+    const statsRef = getUserStatsRef(uid);
     const unsubStats = onSnapshot(statsRef, (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -85,7 +90,7 @@ export default function Planner() {
     });
 
     // 2. Epic Milestones Subscription
-    const milestonesQuery = query(collection(db, 'epic_milestones'));
+    const milestonesQuery = query(getUserMilestonesCol(uid));
     const unsubMilestones = onSnapshot(milestonesQuery, (snap) => {
       const loaded = [];
       snap.forEach((doc) => {
@@ -98,15 +103,17 @@ export default function Planner() {
       unsubStats();
       unsubMilestones();
     };
-  }, []);
+  }, [uid]);
 
   // Subscribe to Tasks in the Current Month (for Calendar dots)
   useEffect(() => {
+    if (!uid) return;
+
     const firstOfMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`;
     const lastOfMonth = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-31`;
     
     const monthQuery = query(
-      collection(db, 'tasks'),
+      getUserTasksCol(uid),
       where('date', '>=', firstOfMonth),
       where('date', '<=', lastOfMonth)
     );
@@ -120,15 +127,16 @@ export default function Planner() {
     });
 
     return () => unsubMonthTasks();
-  }, [currentYear, currentMonth]);
+  }, [currentYear, currentMonth, uid]);
 
   // Filter tasks for the selected date
   const selectedDateTasks = monthTasks.filter(t => t.date === selectedDateStr);
 
   // --- Streak Calculation ---
   const updateStreakMetric = async () => {
+    if (!uid) return;
     try {
-      const completedQuery = query(collection(db, 'tasks'), where('completed', '==', true));
+      const completedQuery = query(getUserTasksCol(uid), where('completed', '==', true));
       const snap = await getDocs(completedQuery);
       const completedDates = [];
       snap.forEach(doc => {
@@ -161,7 +169,7 @@ export default function Planner() {
         }
       }
 
-      const statsRef = doc(db, 'gamification', 'stats');
+      const statsRef = getUserStatsRef(uid);
       await updateDoc(statsRef, { streak });
     } catch (err) {
       console.error("Error updating streak:", err);
@@ -171,7 +179,7 @@ export default function Planner() {
   // --- Add Task ---
   const handleAddTask = async (e) => {
     e.preventDefault();
-    if (!newTaskText.trim()) return;
+    if (!newTaskText.trim() || !uid) return;
 
     const newId = Date.now().toString();
     const newTask = {
@@ -185,7 +193,7 @@ export default function Planner() {
     };
 
     try {
-      await setDoc(doc(db, 'tasks', newId), newTask);
+      await setDoc(doc(getUserTasksCol(uid), newId), newTask);
       setNewTaskText('');
       setNewTaskTime('');
       setNewTaskPriority('medium');
@@ -198,8 +206,9 @@ export default function Planner() {
 
   // --- Toggle Task ---
   const toggleTask = async (task) => {
-    const statsRef = doc(db, 'gamification', 'stats');
-    const taskRef = doc(db, 'tasks', task.id);
+    if (!uid) return;
+    const statsRef = getUserStatsRef(uid);
+    const taskRef = doc(getUserTasksCol(uid), task.id);
     
     const xpChange = task.priority === 'high' ? 30 : (task.priority === 'medium' ? 20 : 10);
     const newCompletedState = !task.completed;
@@ -213,7 +222,7 @@ export default function Planner() {
         level: newLevel
       });
       // Trigger streak recalculation on toggling
-      setTimeout(() => updateStreakMetric(), 500);
+      setTimeout(() => updateStreakMetric(), 550);
     } catch (err) {
       console.error("Error toggling task:", err);
     }
@@ -221,17 +230,18 @@ export default function Planner() {
 
   // --- Delete Task ---
   const deleteTask = async (task) => {
+    if (!uid) return;
     try {
-      await deleteDoc(doc(db, 'tasks', task.id));
+      await deleteDoc(doc(getUserTasksCol(uid), task.id));
       if (task.completed) {
         // Deduct XP if deleting a completed task
-        const statsRef = doc(db, 'gamification', 'stats');
+        const statsRef = getUserStatsRef(uid);
         const xpChange = task.priority === 'high' ? 30 : (task.priority === 'medium' ? 20 : 10);
         const newXp = Math.max(stats.xp - xpChange, 0);
         const newLevel = Math.max(Math.floor(newXp / 100) + 1, 1);
         await updateDoc(statsRef, { xp: newXp, level: newLevel });
       }
-      setTimeout(() => updateStreakMetric(), 500);
+      setTimeout(() => updateStreakMetric(), 550);
     } catch (err) {
       console.error("Error deleting task:", err);
     }
@@ -256,23 +266,15 @@ export default function Planner() {
       : newCurrent >= m.target;
 
     const stateChanged = isCompleted !== m.completed;
-    const statsRef = doc(db, 'gamification', 'stats');
-    const milestoneRef = doc(db, 'epic_milestones', m.id);
+    if (!uid) return;
+    const statsRef = getUserStatsRef(uid);
+    const milestoneRef = doc(getUserMilestonesCol(uid), m.id);
 
     try {
-      const defaultStart = isWeightType ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0;
-      const currentStart = m.start !== undefined ? m.start : defaultStart;
-      
       const updateData = {
         current: newCurrent,
         completed: isCompleted
       };
-      
-      if (isWeightType && newCurrent > currentStart) {
-        updateData.start = newCurrent;
-      } else if (!isWeightType && newCurrent < currentStart) {
-        updateData.start = newCurrent;
-      }
 
       await updateDoc(milestoneRef, updateData);
 
@@ -311,23 +313,15 @@ export default function Planner() {
       : newCurrent >= m.target;
 
     const stateChanged = isCompleted !== m.completed;
-    const statsRef = doc(db, 'gamification', 'stats');
-    const milestoneRef = doc(db, 'epic_milestones', m.id);
+    if (!uid) return;
+    const statsRef = getUserStatsRef(uid);
+    const milestoneRef = doc(getUserMilestonesCol(uid), m.id);
 
     try {
-      const defaultStart = isWeightType ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0;
-      const currentStart = m.start !== undefined ? m.start : defaultStart;
-      
       const updateData = {
         current: newCurrent,
         completed: isCompleted
       };
-      
-      if (isWeightType && newCurrent > currentStart) {
-        updateData.start = newCurrent;
-      } else if (!isWeightType && newCurrent < currentStart) {
-        updateData.start = newCurrent;
-      }
 
       await updateDoc(milestoneRef, updateData);
 
@@ -526,10 +520,18 @@ export default function Planner() {
                   // Heatmap status
                   const summary = dateSummary[dateStr];
                   let statusDotClass = '';
+                  let cellStatusClass = '';
                   if (summary && summary.total > 0) {
-                    if (summary.completed === summary.total) statusDotClass = 'complete';
-                    else if (summary.completed > 0) statusDotClass = 'partial';
-                    else statusDotClass = 'unstarted';
+                    if (summary.completed === summary.total) {
+                      statusDotClass = 'complete';
+                      cellStatusClass = 'status-complete';
+                    } else if (summary.completed > 0) {
+                      statusDotClass = 'partial';
+                      cellStatusClass = 'status-partial';
+                    } else {
+                      statusDotClass = 'unstarted';
+                      cellStatusClass = 'status-unstarted';
+                    }
                   }
 
                   return (
@@ -540,12 +542,12 @@ export default function Planner() {
                         setIsDayViewOpen(true);
                         setShowAddForm(false);
                       }}
-                      className={`calendar-day-cell ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
+                      className={`calendar-day-cell ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''} ${cellStatusClass}`}
                       style={{ 
                         position: 'relative', 
                         aspectRatio: '1', 
                         border: 'none', 
-                        borderRadius: '8px', 
+                        borderRadius: cellStatusClass === 'status-complete' ? '50%' : '8px', 
                         fontSize: '0.85rem', 
                         fontWeight: '600', 
                         cursor: 'pointer',
@@ -556,7 +558,7 @@ export default function Planner() {
                       }}
                     >
                       {dayNum}
-                      {statusDotClass && (
+                      {statusDotClass && statusDotClass !== 'complete' && (
                         <span className={`calendar-status-dot ${statusDotClass}`} />
                       )}
                     </button>
@@ -593,11 +595,35 @@ export default function Planner() {
                     </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '0.9rem', fontWeight: '800', color: 'var(--primary)' }}>
+                      <span style={{ fontSize: '0.95rem', fontWeight: '800', color: 'var(--primary)', letterSpacing: '0.5px' }}>
                         {progressPercent}%
                       </span>
-                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', border: '3px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: `conic-gradient(var(--primary) ${progressPercent * 3.6}deg, rgba(255,255,255,0.05) 0deg)` }}>
-                        <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: '#1c1c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 'bold' }}>
+                      <div style={{ position: 'relative', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg width="36" height="36" style={{ transform: 'rotate(-90deg)', display: 'block' }}>
+                          <circle
+                            cx="18"
+                            cy="18"
+                            r="15"
+                            stroke="rgba(255, 255, 255, 0.08)"
+                            strokeWidth="3"
+                            fill="transparent"
+                          />
+                          <circle
+                            cx="18"
+                            cy="18"
+                            r="15"
+                            stroke="var(--primary)"
+                            strokeWidth="3"
+                            strokeDasharray={2 * Math.PI * 15}
+                            strokeDashoffset={2 * Math.PI * 15 * (1 - progressPercent / 100)}
+                            strokeLinecap="round"
+                            fill="transparent"
+                            style={{
+                              transition: 'stroke-dashoffset 0.45s cubic-bezier(0.4, 0, 0.2, 1)',
+                            }}
+                          />
+                        </svg>
+                        <div style={{ position: 'absolute', fontSize: '0.78rem', fontWeight: '800', color: '#fff' }}>
                           {completedCount}
                         </div>
                       </div>
@@ -753,25 +779,48 @@ export default function Planner() {
             </p>
             
             <div className="milestones-list" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {milestones.map(m => {
-                const isWeight = m.id.startsWith('weight') || m.id.startsWith('bodyfat');
-                const startVal = m.start !== undefined ? m.start : (isWeight ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0);
-                
-                let dispPercent = 0;
-                if (isWeight) {
-                  const totalDiff = startVal - m.target;
-                  const currentDiff = startVal - m.current;
-                  dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
-                } else {
-                  const totalDiff = m.target - startVal;
-                  const currentDiff = m.current - startVal;
-                  dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
-                }
+              {milestones
+                .filter(m => {
+                  const userType = getUserType(user);
+                  if (userType === 'poojitha') {
+                    return !m.id.includes('praneeth');
+                  }
+                  if (userType === 'praneeth') {
+                    return !m.id.includes('poojitha');
+                  }
+                  return true;
+                })
+                .map(m => {
+                  const isWeight = m.id.startsWith('weight') || m.id.startsWith('bodyfat');
+                  const startVal = m.start !== undefined ? m.start : (isWeight ? (m.id.includes('praneeth') ? (m.id.includes('weight') ? 78 : 20) : 58) : 0);
+                  
+                  let dispPercent;
+                  if (isWeight) {
+                    const totalDiff = startVal - m.target;
+                    const currentDiff = startVal - m.current;
+                    dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
+                  } else {
+                    const totalDiff = m.target - startVal;
+                    const currentDiff = m.current - startVal;
+                    dispPercent = totalDiff > 0 ? Math.min(Math.max(Math.round((currentDiff / totalDiff) * 100), 0), 100) : 0;
+                  }
 
-                return (
-                  <div key={m.id} className={`card ${m.completed ? 'milestone-completed' : ''}`} style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: '700', fontSize: '0.92rem', color: '#fff' }}>{m.title}</span>
+                  const userType = getUserType(user);
+                  let displayTitle = m.title;
+                  if (userType === 'poojitha' && m.id === 'weight_poojitha') {
+                    displayTitle = '⚖️ Weight Goal: 55kg';
+                  } else if (userType === 'praneeth') {
+                    if (m.id === 'weight_praneeth') {
+                      displayTitle = '⚖️ Weight Goal: 72kg';
+                    } else if (m.id === 'bodyfat_praneeth') {
+                      displayTitle = '💪 Body Fat Goal: 16%';
+                    }
+                  }
+
+                  return (
+                    <div key={m.id} className={`card ${m.completed ? 'milestone-completed' : ''}`} style={{ padding: '16px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontWeight: '700', fontSize: '0.92rem', color: '#fff' }}>{displayTitle}</span>
                       {m.completed ? (
                         <span className="badge-completed-xp" style={{ fontSize: '0.7rem', color: 'var(--primary)', background: 'rgba(255,215,0,0.1)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
                           ✓ Done (+{m.xpReward} XP)

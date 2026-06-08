@@ -1,5 +1,5 @@
-import { doc, getDoc, setDoc, writeBatch, collection, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
+import { doc, getDoc, setDoc, writeBatch, getDocs } from "firebase/firestore";
+import { db, getUserStatsRef, getUserTasksCol, getUserPassesCol, getUserMilestonesCol, getUserJournalCol } from "../firebase";
 
 const INITIAL_PASSES = [
   { id: '1', title: '🎫 Skip One Fight Pass', desc: 'Lite teesko bro', redeemed: false, unlockLevel: 1, unlocked: true },
@@ -54,11 +54,11 @@ function formatDate(date) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-export async function seedDatabase(onProgress = () => {}) {
-  const statsRef = doc(db, "gamification", "stats");
+export async function seedDatabase(uid, onProgress = () => {}) {
+  const statsRef = getUserStatsRef(uid);
   const statsSnap = await getDoc(statsRef);
   
-  const SEED_VERSION = 6;
+  const SEED_VERSION = 8;
   const currentVersion = statsSnap.exists() ? (statsSnap.data().seededVersion || 1) : 0;
   
   if (statsSnap.exists() && statsSnap.data().seeded && currentVersion === SEED_VERSION) {
@@ -71,7 +71,7 @@ export async function seedDatabase(onProgress = () => {}) {
   // If upgrading, clear out existing tasks to avoid duplicates
   if (currentVersion > 0 && currentVersion < SEED_VERSION) {
     onProgress("Cleaning up old database tasks...");
-    const tasksSnap = await getDocs(collection(db, "tasks"));
+    const tasksSnap = await getDocs(getUserTasksCol(uid));
     let batch = writeBatch(db);
     let count = 0;
     for (const d of tasksSnap.docs) {
@@ -87,9 +87,9 @@ export async function seedDatabase(onProgress = () => {}) {
     }
   }
   
-  // 1. Generate tasks for June 1, 2026 to August 31, 2026
+  // 1. Generate tasks for June 9, 2026 to August 31, 2026
   const tasks = [];
-  const startDate = new Date(2026, 5, 1); // June 1, 2026
+  const startDate = new Date(2026, 5, 9); // June 9, 2026
   const endDate = new Date(2026, 7, 31); // August 31, 2026
   
   let current = new Date(startDate);
@@ -206,7 +206,7 @@ export async function seedDatabase(onProgress = () => {}) {
     const chunk = tasks.slice(i, i + batchSize);
     
     chunk.forEach(task => {
-      const docRef = doc(db, "tasks", task.id);
+      const docRef = doc(getUserTasksCol(uid), task.id);
       batch.set(docRef, task);
     });
     
@@ -217,7 +217,7 @@ export async function seedDatabase(onProgress = () => {}) {
   onProgress("Seeding reward passes...");
   const passesBatch = writeBatch(db);
   INITIAL_PASSES.forEach(pass => {
-    const docRef = doc(db, "passes", pass.id);
+    const docRef = doc(getUserPassesCol(uid), pass.id);
     passesBatch.set(docRef, pass);
   });
   await passesBatch.commit();
@@ -226,24 +226,24 @@ export async function seedDatabase(onProgress = () => {}) {
   onProgress("Seeding milestones...");
   const milestonesBatch = writeBatch(db);
   INITIAL_MILESTONES.forEach(m => {
-    const docRef = doc(db, "epic_milestones", m.id);
+    const docRef = doc(getUserMilestonesCol(uid), m.id);
     milestonesBatch.set(docRef, m);
   });
   await milestonesBatch.commit();
   
   // 5. Seed initial journal entries
   onProgress("Seeding journal entries...");
-  const journalRef = collection(db, "journal");
+  const journalRef = getUserJournalCol(uid);
   const journalSnap = await getDocs(journalRef);
   if (journalSnap.empty) {
     const journalBatch = writeBatch(db);
     INITIAL_JOURNAL.forEach(entry => {
-      const docRef = doc(db, "journal", entry.id);
+      const docRef = doc(getUserJournalCol(uid), entry.id);
       journalBatch.set(docRef, entry);
     });
     await journalBatch.commit();
   }
-
+  
   // 6. Seed stats document
   onProgress("Setting up profiles...");
   await setDoc(statsRef, {

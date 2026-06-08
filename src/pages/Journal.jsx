@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { BookOpen, Search, Plus, Trash2, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
-import { collection, doc, onSnapshot, setDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
-import { db } from '../firebase';
+import { onSnapshot, setDoc, deleteDoc, query, orderBy, doc } from 'firebase/firestore';
+import { auth, getUserJournalCol, getUserFirstName } from '../firebase';
 import '../index.css';
 
 export default function Journal() {
+  const user = auth.currentUser;
+  const uid = user ? user.uid : null;
+
   const [entries, setEntries] = useState([]);
   const [showCalendar, setShowCalendar] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -27,7 +30,8 @@ export default function Journal() {
 
   // Subscribe to Journal Logs from Firestore ordered by timestamp
   useEffect(() => {
-    const journalQuery = query(collection(db, 'journal'), orderBy('timestamp', 'desc'));
+    if (!uid) return;
+    const journalQuery = query(getUserJournalCol(uid), orderBy('timestamp', 'desc'));
     const unsub = onSnapshot(journalQuery, (snap) => {
       const loaded = [];
       snap.forEach((doc) => {
@@ -36,11 +40,11 @@ export default function Journal() {
       setEntries(loaded);
     });
     return () => unsub();
-  }, []);
+  }, [uid]);
 
   const handleAddEntry = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) return;
+    if (!title.trim() || !content.trim() || !uid) return;
 
     const today = new Date();
     const timeStr = today.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -58,7 +62,7 @@ export default function Journal() {
     };
 
     try {
-      await setDoc(doc(db, 'journal', newId), newEntry);
+      await setDoc(doc(getUserJournalCol(uid), newId), newEntry);
       setTitle('');
       setContent('');
       setMood('neutral');
@@ -68,8 +72,9 @@ export default function Journal() {
   };
 
   const handleDeleteEntry = async (id) => {
+    if (!uid) return;
     try {
-      await deleteDoc(doc(db, 'journal', id));
+      await deleteDoc(doc(getUserJournalCol(uid), id));
     } catch (err) {
       console.error("Error deleting journal entry:", err);
     }
@@ -253,7 +258,7 @@ export default function Journal() {
 
               <textarea
                 className="form-input"
-                placeholder="Write whatever is on your mind today, MoMo..."
+                placeholder={`Write whatever is on your mind today, ${getUserFirstName(user)}...`}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 style={{ padding: '12px', minHeight: '120px', resize: 'vertical', fontFamily: 'inherit' }}

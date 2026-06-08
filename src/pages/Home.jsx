@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dumbbell, Gift, ListTodo, BookOpen, Flame, Award } from 'lucide-react';
-import { doc, collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db } from '../firebase';
+import { Dumbbell, Gift, ListTodo, BookOpen, Flame, Award, LogOut } from 'lucide-react';
+import { onSnapshot, query, where } from 'firebase/firestore';
+import { auth, getUserStatsRef, getUserPassesCol, getUserTasksCol, getUserFirstName } from '../firebase';
 import { seedDatabase } from '../utils/firebaseSeed';
 import '../index.css';
 
 export default function Home() {
   const navigate = useNavigate();
+  const user = auth.currentUser;
+  const uid = user ? user.uid : null;
 
   // Load metrics from Firestore
   const [tasks, setTasks] = useState([]);
@@ -26,9 +28,11 @@ export default function Home() {
   };
 
   useEffect(() => {
+    if (!uid) return;
+
     const runSeedCheck = async () => {
       try {
-        await seedDatabase((text) => setSeedingText(text));
+        await seedDatabase(uid, (text) => setSeedingText(text));
         setSeedingText('');
       } catch (e) {
         console.error("Error seeding database on load:", e);
@@ -39,7 +43,7 @@ export default function Home() {
     runSeedCheck();
 
     // 1. Subscribe to gamification stats
-    const statsRef = doc(db, 'gamification', 'stats');
+    const statsRef = getUserStatsRef(uid);
     const unsubStats = onSnapshot(statsRef, 
       (snap) => {
         if (snap.exists()) {
@@ -56,7 +60,7 @@ export default function Home() {
 
     // 2. Subscribe to passes (unlocked & unredeemed)
     const unsubPasses = onSnapshot(
-      collection(db, 'passes'), 
+      getUserPassesCol(uid), 
       (snap) => {
         const loadedPasses = [];
         snap.forEach((doc) => {
@@ -71,7 +75,7 @@ export default function Home() {
 
     // 3. Subscribe to today's tasks
     const todayStr = getTodayDateString();
-    const tasksQuery = query(collection(db, 'tasks'), where('date', '==', todayStr));
+    const tasksQuery = query(getUserTasksCol(uid), where('date', '==', todayStr));
     const unsubTasks = onSnapshot(
       tasksQuery, 
       (snap) => {
@@ -93,7 +97,7 @@ export default function Home() {
       unsubPasses();
       unsubTasks();
     };
-  }, []);
+  }, [uid]);
 
   const [isGymsonTouched, setIsGymsonTouched] = useState(false);
   const [isSurvivalTouched, setIsSurvivalTouched] = useState(false);
@@ -133,9 +137,41 @@ export default function Home() {
     <main className="container main-content-wrapper">
       
       {/* Personalized Welcome Header */}
-      <div className="dashboard-header" style={{ marginBottom: '16px' }}>
-        <h2>{getGreeting()}</h2>
-        <h1>MoMo's Hub <span className="brand-emoji">🤬</span></h1>
+      <div className="dashboard-header" style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2>{getGreeting()}</h2>
+          <h1 style={{ margin: 0 }}>MoMo's Hub <span className="brand-emoji">🤬</span></h1>
+        </div>
+        
+        {user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.03)', padding: '6px 12px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+            {user.photoURL && (
+              <img 
+                src={user.photoURL} 
+                alt={user.displayName || 'Profile'} 
+                referrerPolicy="no-referrer"
+                style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1.5px solid var(--primary)', display: 'block' }} 
+              />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: '800', color: '#fff', lineHeight: '1.2' }}>
+                {user.displayName || 'User'}
+              </span>
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                {user.email}
+              </span>
+            </div>
+            <button 
+              onClick={() => auth.signOut()} 
+              title="Sign Out"
+              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', transition: 'color 0.2s' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--danger)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-muted)'}
+            >
+              <LogOut size={16} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Gamification Status Bar */}
@@ -169,7 +205,7 @@ export default function Home() {
       {/* Welcome Intro Summary */}
       <div className="card" style={{ padding: '24px 20px', borderRadius: '16px', textAlign: 'center', marginBottom: '24px' }}>
         <p style={{ fontSize: '1.02rem', color: 'var(--text-main)', lineHeight: '1.5', margin: 0 }}>
-          Welcome back, MoMo. Your daily metrics are looking good. Select any card below to track your workouts, manage checklist tasks, or activate passes.
+          Welcome back, {getUserFirstName(user)}. Your daily metrics are looking good. Select any card below to track your workouts, manage checklist tasks, or activate passes.
         </p>
       </div>
 
