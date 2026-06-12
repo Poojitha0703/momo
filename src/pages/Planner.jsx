@@ -5,9 +5,9 @@ import {
 } from 'lucide-react';
 import { 
   onSnapshot, setDoc, updateDoc, deleteDoc, 
-  query, where, getDocs, doc 
+  query, where, getDocs, doc, writeBatch 
 } from 'firebase/firestore';
-import { auth, getUserStatsRef, getUserTasksCol, getUserMilestonesCol, getUserType } from '../firebase';
+import { auth, getUserStatsRef, getUserTasksCol, getUserMilestonesCol, getUserType, db } from '../firebase';
 import { seedDatabase } from '../utils/firebaseSeed';
 import '../index.css';
 
@@ -36,6 +36,15 @@ export default function Planner() {
   const [levelUpUnlocked, setLevelUpUnlocked] = useState(null); // stores level if just leveled up
   const [isDayViewOpen, setIsDayViewOpen] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Delete task states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [futureTasksList, setFutureTasksList] = useState([]);
+
+  // Repeat task states
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [repeatUntilDate, setRepeatUntilDate] = useState('');
 
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth(); // 0..11
@@ -181,23 +190,74 @@ export default function Planner() {
     e.preventDefault();
     if (!newTaskText.trim() || !uid) return;
 
-    const newId = Date.now().toString();
-    const newTask = {
-      id: newId,
-      text: newTaskText.trim(),
-      priority: newTaskPriority,
-      category: newTaskCategory,
-      completed: false,
-      date: selectedDateStr,
-      time: newTaskTime || null
-    };
-
     try {
-      await setDoc(doc(getUserTasksCol(uid), newId), newTask);
+      if (isRecurring && repeatUntilDate) {
+        // Parse date boundaries
+        const start = new Date(selectedDate);
+        const end = new Date(repeatUntilDate + 'T00:00:00');
+        
+        if (end >= start) {
+          const tasksToCreate = [];
+          let current = new Date(start);
+          
+          while (current <= end) {
+            const dateStr = formatDateStr(current);
+            // Generate client-side Firestore ID
+            const newId = doc(getUserTasksCol(uid)).id;
+            tasksToCreate.push({
+              id: newId,
+              text: newTaskText.trim(),
+              priority: newTaskPriority,
+              category: newTaskCategory,
+              completed: false,
+              date: dateStr,
+              time: newTaskTime || null
+            });
+            current.setDate(current.getDate() + 1);
+          }
+
+          if (tasksToCreate.length > 0) {
+            const batch = writeBatch(db);
+            tasksToCreate.forEach(task => {
+              batch.set(doc(getUserTasksCol(uid), task.id), task);
+            });
+            await batch.commit();
+          }
+        } else {
+          // If end date is before start date, fallback to single add
+          const newId = Date.now().toString();
+          const newTask = {
+            id: newId,
+            text: newTaskText.trim(),
+            priority: newTaskPriority,
+            category: newTaskCategory,
+            completed: false,
+            date: selectedDateStr,
+            time: newTaskTime || null
+          };
+          await setDoc(doc(getUserTasksCol(uid), newId), newTask);
+        }
+      } else {
+        // Single Task Add
+        const newId = Date.now().toString();
+        const newTask = {
+          id: newId,
+          text: newTaskText.trim(),
+          priority: newTaskPriority,
+          category: newTaskCategory,
+          completed: false,
+          date: selectedDateStr,
+          time: newTaskTime || null
+        };
+        await setDoc(doc(getUserTasksCol(uid), newId), newTask);
+      }
+
       setNewTaskText('');
       setNewTaskTime('');
       setNewTaskPriority('medium');
       setNewTaskCategory('lifestyle');
+      setIsRecurring(false);
+      setRepeatUntilDate('');
       setShowAddForm(false);
     } catch (err) {
       console.error("Error adding task:", err);
@@ -232,19 +292,77 @@ export default function Planner() {
   const deleteTask = async (task) => {
     if (!uid) return;
     try {
-      await deleteDoc(doc(getUserTasksCol(uid), task.id));
-      if (task.completed) {
-        // Deduct XP if deleting a completed task
+      // Find all tasks with the same text to check for future occurrences
+      const q = query(
+        getUserTasksCol(uid),
+        where('text', '==', task.text)
+      );
+      const snap = await getDocs(q);
+      const futureTasks = [];
+      snap.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data.date > task.date) {
+          futureTasks.push({ ...data, id: docSnap.id });
+        }
+      });
+
+      setTaskToDelete(task);
+      setFutureTasksList(futureTasks);
+      setShowDeleteConfirm(true);
+    } catch (err) {
+      console.error("Error querying future tasks:", err);
+      // Fallback: prompt confirmation for single task
+      setTaskToDelete(task);
+      setFutureTasksList([]);
+      setShowDeleteConfirm(true);
+    }
+  };
+
+  const confirmDeleteTask = async (deleteAllFuture) => {
+    if (!uid || !taskToDelete) return;
+    try {
+      let xpDeduction = 0;
+      
+      // 1. Delete main task
+      await deleteDoc(doc(getUserTasksCol(uid), taskToDelete.id));
+      if (taskToDelete.completed) {
+        xpDeduction += taskToDelete.priority === 'high' ? 30 : (taskToDelete.priority === 'medium' ? 20 : 10);
+      }
+
+      // 2. Delete future tasks if selected
+      if (deleteAllFuture && futureTasksList.length > 0) {
+        const batch = writeBatch(db);
+        futureTasksList.forEach(t => {
+          batch.delete(doc(getUserTasksCol(uid), t.id));
+          if (t.completed) {
+            xpDeduction += t.priority === 'high' ? 30 : (t.priority === 'medium' ? 20 : 10);
+          }
+        });
+        await batch.commit();
+      }
+
+      // 3. Update stats if XP changed
+      if (xpDeduction > 0) {
         const statsRef = getUserStatsRef(uid);
-        const xpChange = task.priority === 'high' ? 30 : (task.priority === 'medium' ? 20 : 10);
-        const newXp = Math.max(stats.xp - xpChange, 0);
+        const newXp = Math.max(stats.xp - xpDeduction, 0);
         const newLevel = Math.max(Math.floor(newXp / 100) + 1, 1);
         await updateDoc(statsRef, { xp: newXp, level: newLevel });
       }
+
       setTimeout(() => updateStreakMetric(), 550);
     } catch (err) {
-      console.error("Error deleting task:", err);
+      console.error("Error confirming delete:", err);
+    } finally {
+      setShowDeleteConfirm(false);
+      setTaskToDelete(null);
+      setFutureTasksList([]);
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setTaskToDelete(null);
+    setFutureTasksList([]);
   };
 
   // --- Increment/Decrement Epic Milestones ---
@@ -420,6 +538,67 @@ export default function Planner() {
             <button className="btn-primary" onClick={() => setLevelUpUnlocked(null)} style={{ marginTop: '16px' }}>
               Awesome!
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Task Confirmation Modal */}
+      {showDeleteConfirm && taskToDelete && (
+        <div className="level-up-modal-overlay" style={{ zIndex: 1100 }} onClick={cancelDelete}>
+          <div className="level-up-modal card" style={{ border: '2px solid var(--danger)', boxShadow: '0 0 35px rgba(255, 59, 48, 0.25)', maxWidth: '360px' }} onClick={e => e.stopPropagation()}>
+            <Trash2 className="text-danger" size={48} style={{ filter: 'drop-shadow(0 0 8px rgba(255, 59, 48, 0.4))', marginBottom: '8px' }} />
+            <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#fff', margin: '0' }}>Delete Task?</h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-main)', margin: '0', textAlign: 'center', lineHeight: '1.4' }}>
+              Are you sure you want to delete <strong style={{ color: '#fff' }}>"{taskToDelete.text}"</strong>?
+            </p>
+
+            {futureTasksList.length > 0 ? (
+              <>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 8px 0', textAlign: 'center', lineHeight: '1.4' }}>
+                  This task has <strong style={{ color: 'var(--primary)' }}>{futureTasksList.length}</strong> future occurrence{futureTasksList.length > 1 ? 's' : ''}.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '8px' }}>
+                  <button 
+                    className="btn-danger" 
+                    onClick={() => confirmDeleteTask(true)}
+                    style={{ padding: '12px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Delete All Future Tasks
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={() => confirmDeleteTask(false)}
+                    style={{ padding: '12px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                  >
+                    Delete This Instance Only
+                  </button>
+                  <button 
+                    className="btn-secondary" 
+                    onClick={cancelDelete}
+                    style={{ padding: '12px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--text-muted)' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: 'flex', gap: '10px', width: '100%', marginTop: '12px' }}>
+                <button 
+                  className="btn-secondary" 
+                  onClick={cancelDelete}
+                  style={{ flex: 1, padding: '12px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn-danger" 
+                  onClick={() => confirmDeleteTask(false)}
+                  style={{ flex: 1, padding: '12px', borderRadius: '10px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -760,6 +939,41 @@ export default function Planner() {
                               </button>
                             ))}
                           </div>
+                        </div>
+
+                        {/* Repeat Option */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '10px' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--text-main)', userSelect: 'none' }}>
+                            <input
+                              type="checkbox"
+                              checked={isRecurring}
+                              onChange={(e) => {
+                                setIsRecurring(e.target.checked);
+                                if (e.target.checked && !repeatUntilDate) {
+                                  // Default end date is 7 days in the future
+                                  const defaultEnd = new Date(selectedDate);
+                                  defaultEnd.setDate(defaultEnd.getDate() + 7);
+                                  setRepeatUntilDate(formatDateStr(defaultEnd));
+                                }
+                              }}
+                              style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                            />
+                            <span>Repeat daily until a specific date</span>
+                          </label>
+
+                          {isRecurring && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingLeft: '24px' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Until:</span>
+                              <input
+                                type="date"
+                                className="form-input"
+                                value={repeatUntilDate}
+                                min={selectedDateStr}
+                                onChange={(e) => setRepeatUntilDate(e.target.value)}
+                                style={{ padding: '6px 10px', fontSize: '0.8rem', color: '#fff', background: '#000', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', width: '140px' }}
+                              />
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
