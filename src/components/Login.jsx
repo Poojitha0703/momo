@@ -3,10 +3,14 @@ import {
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  updateProfile 
+  updateProfile,
+  signInWithCredential,
+  GoogleAuthProvider
 } from 'firebase/auth';
 import { auth, googleProvider } from '../firebase';
 import { LogIn, ShieldAlert } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import '../index.css';
 
 export default function Login() {
@@ -22,7 +26,20 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const isNative = Capacitor.isNativePlatform();
+      if (isNative) {
+        // Native mobile implementation
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        const idToken = result.credential?.idToken;
+        if (!idToken) {
+          throw new Error("No Google ID token was returned by the native authentication plugin.");
+        }
+        const credential = GoogleAuthProvider.credential(idToken);
+        await signInWithCredential(auth, credential);
+      } else {
+        // Web browser implementation
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (err) {
       console.error("Google Sign-In Error:", err);
       setError(err.message || 'Failed to sign in with Google. Please try again.');
