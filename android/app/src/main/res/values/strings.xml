@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Momo Birthday</string>
-    <string name="title_activity_main">Momo Birthday</string>
+    <string name="app_name">Momo</string>
+    <string name="title_activity_main">Momo</string>
     <string name="package_name">com.momo.birthdayapp</string>
     <string name="custom_url_scheme">com.momo.birthdayapp</string>
     <string name="default_web_client_id">623171036700-kskqk57alqoosvgneik7l1imn7s22508.apps.googleusercontent.com</string>
