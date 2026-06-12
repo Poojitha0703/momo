@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "623171036700",
+    "project_id": "momo-4139d",
+    "storage_bucket": "momo-4139d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:623171036700:android:e340c2220faa47c8cb61d9",
+        "android_client_info": {
+          "package_name": "com.momo.birthdayapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "623171036700-993q417b0pcurk4984refpqrvie2u8dv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.momo.birthdayapp",
+            "certificate_hash": "cbad67862d4506a28d447c1543b9b59a1ace2df9"
+          }
+        },
+        {
+          "client_id": "623171036700-kskqk57alqoosvgneik7l1imn7s22508.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAHBsUdW6IQmxVrfInKH5WiDupvAQIHRHI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "623171036700-kskqk57alqoosvgneik7l1imn7s22508.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
