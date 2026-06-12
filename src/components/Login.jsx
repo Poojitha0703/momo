@@ -29,7 +29,9 @@ export default function Login() {
       const isNative = Capacitor.isNativePlatform();
       if (isNative) {
         // Native mobile implementation
-        const result = await FirebaseAuthentication.signInWithGoogle();
+        const result = await FirebaseAuthentication.signInWithGoogle({
+          useCredentialManager: false
+        });
         const idToken = result.credential?.idToken;
         if (!idToken) {
           throw new Error("No Google ID token was returned by the native authentication plugin.");
