@@ -1,5 +1,13 @@
 {
   "appId": "com.momo.birthdayapp",
   "appName": "Momo Birthday",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": [
+        "google.com"
+      ]
+    }
+  }
 }
