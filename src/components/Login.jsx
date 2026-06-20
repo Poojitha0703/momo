@@ -30,7 +30,7 @@ export default function Login() {
       if (isNative) {
         // Native mobile implementation
         const result = await FirebaseAuthentication.signInWithGoogle({
-          useCredentialManager: false
+          useCredentialManager: true
         });
         const idToken = result.credential?.idToken;
         if (!idToken) {
