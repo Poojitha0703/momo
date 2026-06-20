@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { App as CapacitorApp } from '@capacitor/app';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import Navigation from './components/Navigation';
@@ -9,6 +10,31 @@ import GymTracker from './pages/GymTracker';
 import Planner from './pages/Planner';
 import Passes from './pages/Passes';
 import Journal from './pages/Journal';
+
+function BackButtonHandler() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    let listenerHandle;
+
+    CapacitorApp.addListener('backButton', () => {
+      if (location.pathname === '/') {
+        CapacitorApp.exitApp();
+      } else {
+        navigate(-1);
+      }
+    }).then(handle => {
+      listenerHandle = handle;
+    });
+
+    return () => {
+      listenerHandle?.remove();
+    };
+  }, [location, navigate]);
+
+  return null;
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -41,6 +67,7 @@ function App() {
 
   return (
     <Router>
+      <BackButtonHandler />
       <div className="app-layout">
         <Navigation />
         <div className="app-content">
