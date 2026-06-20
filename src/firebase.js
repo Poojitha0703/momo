@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, doc } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC0lP82AEwRPy2B-_ME4UtM7zEeVCxzIyU",
@@ -15,6 +16,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
 
 // Firestore user-scoped collection and document reference helpers
@@ -23,6 +25,8 @@ export const getUserTasksCol = (uid) => collection(db, 'users', uid, 'tasks');
 export const getUserPassesCol = (uid) => collection(db, 'users', uid, 'passes');
 export const getUserMilestonesCol = (uid) => collection(db, 'users', uid, 'epic_milestones');
 export const getUserJournalCol = (uid) => collection(db, 'users', uid, 'journal');
+export const getUserGymLogsCol = (uid) => collection(db, 'users', uid, 'gym_logs');
+export const getUserGymLogRef = (uid, dateStr) => doc(db, 'users', uid, 'gym_logs', dateStr);
 
 export const getUserType = (user) => {
   if (!user) return 'general';
